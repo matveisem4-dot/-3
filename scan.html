@@ -1,59 +1,93 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mobile Scanner Mode</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart Scanner - Phone Client</title>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { font-family: sans-serif; background: #0f172a; color: white; text-align: center; margin: 0; padding: 20px; }
-        input { width: 100%; padding: 20px; font-size: 24px; border-radius: 15px; border: none; margin: 20px 0; }
-        button { width: 100%; padding: 20px; background: #2563eb; color: white; border: none; border-radius: 15px; font-weight: bold; font-size: 20px; }
-        #reader { width: 100%; border-radius: 20px; overflow: hidden; margin-top: 20px; border: 4px solid #3b82f6; }
+        body { margin: 0; background: #0f172a; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        .input-screen { text-align: center; padding: 20px; width: 100%; }
+        input { width: 80%; padding: 20px; font-size: 30px; border-radius: 15px; border: none; margin: 20px 0; text-align: center; background: #1e293b; color: white; border: 2px solid #3b82f6; }
+        button { width: 80%; padding: 20px; background: #2563eb; color: white; border: none; border-radius: 15px; font-weight: bold; font-size: 20px; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
+        #reader { width: 100vw; height: 100vh; display: none; }
+        #status-bar { position: fixed; bottom: 0; width: 100%; background: rgba(0,0,0,0.8); padding: 15px; text-align: center; display: none; z-index: 10; font-weight: bold; }
     </style>
 </head>
 <body>
 
-<div id="setup">
-    <h2>Связаться с кассой</h2>
-    <input type="number" id="kiosk-id" placeholder="000000">
-    <button onclick="connect()">ПОДКЛЮЧИТЬ КАМЕРУ</button>
-</div>
+    <div id="auth-ui" class="input-screen">
+        <h2 style="color: #60a5fa;">СВЯЗЬ С КАССОЙ</h2>
+        <p>Введите случайный ID, который<br>показан на экране компьютера:</p>
+        <input type="number" id="kiosk-id" placeholder="000 000" pattern="\d*">
+        <br>
+        <button onclick="connectToKiosk()">ПОДКЛЮЧИТЬ КАМЕРУ</button>
+    </div>
 
-<div id="scanner-ui" style="display:none;">
     <div id="reader"></div>
-    <h2 id="last-code" style="color: #60a5fa; margin-top: 20px;">Наведите на товар</h2>
-</div>
+    <div id="status-bar">ГОТОВ К СКАНИРОВАНИЮ</div>
 
-<script>
-    const firebaseConfig = { databaseURL: "https://cassa-simulator-4-default-rtdb.firebaseio.com/" };
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
+    <script>
+        // Твоя ссылка на Firebase
+        const firebaseConfig = { 
+            databaseURL: "https://cassa-simulator-4-default-rtdb.firebaseio.com/" 
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
 
-    function connect() {
-        const id = document.getElementById('kiosk-id').value;
-        if(id.length === 6) {
-            document.getElementById('setup').style.display = 'none';
-            document.getElementById('scanner-ui').style.display = 'block';
-            startCamera(id);
-        }
-    }
+        let activeKioskId = "";
 
-    function startCamera(sessionId) {
-        const scanner = new Html5Qrcode("reader");
-        scanner.start(
-            { facingMode: "environment" },
-            { fps: 20, qrbox: { width: 250, height: 150 } },
-            (code) => {
-                document.getElementById('last-code').innerText = "Пикнул: " + code;
-                if (navigator.vibrate) navigator.vibrate(100);
-                
-                // ОТПРАВКА В FIREBASE
-                db.ref('kiosk_sessions/' + sessionId).update({ lastScanned: code });
+        function connectToKiosk() {
+            const idInput = document.getElementById('kiosk-id').value;
+            if (idInput.length === 6) {
+                activeKioskId = idInput;
+                document.getElementById('auth-ui').style.display = 'none';
+                document.getElementById('reader').style.display = 'block';
+                document.getElementById('status-bar').style.display = 'block';
+                startMobileCamera();
+            } else {
+                alert("Введите 6 цифр ID!");
             }
-        );
-    }
-</script>
+        }
+
+        function startMobileCamera() {
+            const html5QrCode = new Html5Qrcode("reader");
+            const config = { 
+                fps: 25, 
+                qrbox: { width: 280, height: 160 },
+                aspectRatio: 1.0
+            };
+
+            // Запуск камеры (facingMode: environment - это задняя камера)
+            html5QrCode.start(
+                { facingMode: "environment" }, 
+                config, 
+                (decodedText) => {
+                    // Вибрация телефона при успешном скане
+                    if (navigator.vibrate) navigator.vibrate(100);
+                    
+                    // Отправляем штрих-код в Firebase по ID кассы
+                    db.ref('kiosks/' + activeKioskId).update({
+                        lastScan: decodedText,
+                        timestamp: Date.now()
+                    });
+
+                    // Визуальный отклик
+                    document.getElementById('status-bar').style.background = "#22c55e";
+                    document.getElementById('status-bar').innerText = "ОТПРАВЛЕНО: " + decodedText;
+                    
+                    setTimeout(() => {
+                        document.getElementById('status-bar').style.background = "rgba(0,0,0,0.8)";
+                        document.getElementById('status-bar').innerText = "ГОТОВ К СКАНИРОВАНИЮ";
+                    }, 1000);
+                }
+            ).catch(err => {
+                alert("Ошибка доступа к камере. Проверьте разрешения в браузере.");
+                console.error(err);
+            });
+        }
+    </script>
 </body>
 </html>
