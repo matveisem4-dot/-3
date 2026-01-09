@@ -1,78 +1,61 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
-    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Scanner - No Glow</title>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { margin: 0; background: #000; color: white; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-        
-        /* ГЛАВНОЕ: Устранение пересвета */
-        #reader video {
-            object-fit: cover !important;
-            /* brightness(0.6) - уменьшает пересвет, contrast(1.6) - выделяет штрихи */
-            filter: brightness(0.6) contrast(1.6) saturate(0.5) !important;
-        }
-
-        .auth-zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
-        input { width: 85%; padding: 20px; font-size: 28px; border-radius: 15px; border: 2px solid #3b82f6; background: #1e293b; color: white; text-align: center; margin-bottom: 20px; }
-        button { width: 85%; padding: 20px; background: #2563eb; color: white; border: none; border-radius: 15px; font-weight: bold; font-size: 18px; }
-        
-        #reader { width: 100vw; height: 100vh; display: none; background: #000; }
-        
-        /* Рамка-прицел */
-        .scan-overlay {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 260px; height: 160px; border: 2px solid #3b82f6; border-radius: 15px;
-            box-shadow: 0 0 0 2000px rgba(0,0,0,0.6); pointer-events: none; z-index: 50; display: none;
-        }
+        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
+        #reader video { filter: brightness(0.6) contrast(1.5) !important; }
+        .overlay { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 250px; height: 150px; border: 2px solid #3b82f6; z-index: 10; pointer-events: none; }
+        input { padding: 15px; font-size: 20px; width: 80%; border-radius: 10px; margin: 20px 0; }
+        button { padding: 20px; width: 80%; background: #2563eb; color: #fff; border: none; border-radius: 10px; font-weight: bold; }
+        #status { position: fixed; bottom: 20px; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <div id="auth" class="auth-zone">
-        <h2 style="margin-bottom: 30px;">ПОДКЛЮЧЕНИЕ</h2>
-        <input type="number" id="k-id" placeholder="ID Кассы">
-        <button onclick="startScanning()">ОТКРЫТЬ СКАНЕР</button>
+    <div id="auth">
+        <h2>ID КИОСКА</h2>
+        <input type="number" id="kid" placeholder="000000">
+        <br>
+        <button onclick="start()">ПОДКЛЮЧИТЬ</button>
     </div>
 
-    <div id="reader"></div>
-    <div id="overlay" class="scan-overlay"></div>
+    <div id="reader" style="display:none; width: 100vw; height: 100vh;"></div>
+    <div id="ov" class="overlay" style="display:none;"></div>
+    <div id="status"></div>
 
     <script>
         const firebaseConfig = { databaseURL: "https://cassa-simulator-4-default-rtdb.firebaseio.com/" };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        function startScanning() {
-            const id = document.getElementById('k-id').value;
-            if (id.length !== 6) return alert("Введите 6 цифр!");
+        let canScan = true; // Флаг задержки
 
+        function start() {
+            const id = document.getElementById('kid').value;
+            if(id.length !== 6) return;
             document.getElementById('auth').style.display = 'none';
             document.getElementById('reader').style.display = 'block';
-            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('ov').style.display = 'block';
 
-            const scanner = new Html5Qrcode("reader");
-            
-            const config = { 
-                fps: 25, 
-                qrbox: { width: 260, height: 160 },
-                // Запрашиваем минимальную яркость, если телефон поддерживает расширенные настройки
-                videoConstraints: {
-                    facingMode: "environment",
-                    advanced: [{ exposureMode: "manual", exposureTime: 100 }]
+            const sc = new Html5Qrcode("reader");
+            sc.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 }, (txt) => {
+                if(canScan) {
+                    canScan = false; // Блокируем новые сканы
+                    
+                    db.ref('kiosks/' + id).update({ lastScan: txt });
+                    if(navigator.vibrate) navigator.vibrate(100);
+                    document.getElementById('status').innerText = "ОТПРАВЛЕНО!";
+                    
+                    // УСТАНАВЛИВАЕМ ЗАДЕРЖКУ 2 СЕКУНДЫ
+                    setTimeout(() => {
+                        canScan = true;
+                        document.getElementById('status').innerText = "ГОТОВ";
+                    }, 2000); 
                 }
-            };
-
-            scanner.start({ facingMode: "environment" }, config, (text) => {
-                db.ref('kiosks/' + id).update({ lastScan: text });
-                if (navigator.vibrate) navigator.vibrate(100);
-            }).catch(err => {
-                // Если расширенные настройки не поддерживаются, запускаем в обычном режиме
-                scanner.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 });
             });
         }
     </script>
