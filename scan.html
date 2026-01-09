@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile Scanner Mode</title>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        body { font-family: sans-serif; background: #0f172a; color: white; text-align: center; margin: 0; padding: 20px; }
+        input { width: 100%; padding: 20px; font-size: 24px; border-radius: 15px; border: none; margin: 20px 0; }
+        button { width: 100%; padding: 20px; background: #2563eb; color: white; border: none; border-radius: 15px; font-weight: bold; font-size: 20px; }
+        #reader { width: 100%; border-radius: 20px; overflow: hidden; margin-top: 20px; border: 4px solid #3b82f6; }
+    </style>
+</head>
+<body>
+
+<div id="setup">
+    <h2>Связаться с кассой</h2>
+    <input type="number" id="kiosk-id" placeholder="000000">
+    <button onclick="connect()">ПОДКЛЮЧИТЬ КАМЕРУ</button>
+</div>
+
+<div id="scanner-ui" style="display:none;">
+    <div id="reader"></div>
+    <h2 id="last-code" style="color: #60a5fa; margin-top: 20px;">Наведите на товар</h2>
+</div>
+
+<script>
+    const firebaseConfig = { databaseURL: "https://cassa-simulator-4-default-rtdb.firebaseio.com/" };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    function connect() {
+        const id = document.getElementById('kiosk-id').value;
+        if(id.length === 6) {
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('scanner-ui').style.display = 'block';
+            startCamera(id);
+        }
+    }
+
+    function startCamera(sessionId) {
+        const scanner = new Html5Qrcode("reader");
+        scanner.start(
+            { facingMode: "environment" },
+            { fps: 20, qrbox: { width: 250, height: 150 } },
+            (code) => {
+                document.getElementById('last-code').innerText = "Пикнул: " + code;
+                if (navigator.vibrate) navigator.vibrate(100);
+                
+                // ОТПРАВКА В FIREBASE
+                db.ref('kiosk_sessions/' + sessionId).update({ lastScanned: code });
+            }
+        );
+    }
+</script>
+</body>
+</html>
