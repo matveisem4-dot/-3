@@ -1,116 +1,132 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Scanner Terminal</title>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { margin: 0; background: #1a1a1a; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; }
+        body { margin: 0; padding: 0; background: #000; color: white; overflow: hidden; font-family: sans-serif; }
         
-        /* КОНТЕЙНЕР КАМЕРЫ: Не на весь экран! */
-        #reader-wrapper {
-            position: relative;
-            width: 90%;
-            max-width: 400px;
-            aspect-ratio: 1 / 1; /* Квадрат как у профи */
-            border-radius: 20px;
-            overflow: hidden;
-            border: 4px solid #333;
-            background: #000;
+        #reader { width: 100vw; height: 100vh; }
+        
+        .ui-layer {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: space-between;
+            pointer-events: none; z-index: 10;
         }
 
-        #reader { width: 100%; height: 100%; }
-
-        /* Настройки самого видео внутри блока */
-        #reader video { 
-            object-fit: cover !important;
-            filter: contrast(1.1) brightness(1.0) !important;
+        .top-bar {
+            padding: 20px; background: rgba(0,0,0,0.6);
+            display: flex; gap: 10px; pointer-events: auto;
         }
 
-        .overlay { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            border: 2px solid #22c55e; 
-            box-sizing: border-box;
-            z-index: 10; pointer-events: none; 
+        input {
+            flex: 1; padding: 12px; border-radius: 8px; border: none;
+            background: #222; color: white; font-size: 16px; text-align: center;
         }
 
-        .scan-line {
-            position: absolute; width: 100%; height: 2px;
-            background: #22c55e; top: 50%;
-            box-shadow: 0 0 10px #22c55e;
-            animation: moveLine 2s linear infinite;
+        .bottom-bar {
+            padding: 30px; background: rgba(0,0,0,0.6);
+            text-align: center; font-weight: bold; font-size: 18px;
         }
 
-        @keyframes moveLine { 0% { top: 0%; } 100% { top: 100%; } }
-
-        #auth { text-align: center; }
-        input { padding: 15px; font-size: 18px; width: 80%; border-radius: 10px; margin: 10px 0; border: none; }
-        button { padding: 18px; width: 85%; background: #22c55e; color: #fff; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
-        #status { margin-top: 20px; font-weight: bold; font-size: 18px; min-height: 1.2em; }
+        /* Тот самый прицел */
+        .scanner-target {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 250px; height: 150px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 15px; pointer-events: none;
+        }
+        .scanner-target::after {
+            content: ""; position: absolute; top: 50%; left: 5%;
+            width: 90%; height: 2px; background: #ff0000;
+            box-shadow: 0 0 10px #ff0000;
+            animation: move 2s infinite ease-in-out;
+        }
+        @keyframes move { 0%, 100% { top: 20%; } 50% { top: 80%; } }
     </style>
 </head>
 <body>
 
-    <div id="auth">
-        <h2 style="margin-bottom: 20px;">KIOSK SCANNER</h2>
-        <input type="number" id="kid" placeholder="ID КИОСКА (6 цифр)">
-        <br>
-        <button onclick="start()">ВОЙТИ В СИСТЕМУ</button>
-    </div>
+    <div id="reader"></div>
 
-    <div id="reader-wrapper" style="display:none;">
-        <div id="reader"></div>
-        <div class="overlay">
-            <div class="scan-line"></div>
+    <div class="ui-layer">
+        <div class="top-bar">
+            <input type="number" id="kiosk-id" placeholder="ID КИОСКА" oninput="saveId()">
         </div>
+        
+        <div class="scanner-target"></div>
+
+        <div class="bottom-bar" id="status">ОЖИДАНИЕ ID...</div>
     </div>
-    
-    <div id="status"></div>
 
     <script>
         const firebaseConfig = { databaseURL: "https://cassa-simulator-4-default-rtdb.firebaseio.com/" };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        let canScan = true;
+        const statusEl = document.getElementById('status');
+        const kioskInput = document.getElementById('kiosk-id');
+        const beep = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
 
-        function start() {
-            const id = document.getElementById('kid').value;
-            if(id.length !== 6) return;
-            
-            document.getElementById('auth').style.display = 'none';
-            document.getElementById('reader-wrapper').style.display = 'block';
+        // Загрузка сохраненного ID
+        kioskInput.value = localStorage.getItem('scanner_kiosk_id') || "";
 
+        function saveId() {
+            localStorage.setItem('scanner_kiosk_id', kioskInput.value);
+            if(kioskInput.value.length >= 6) startCamera();
+        }
+
+        function startCamera() {
             const html5QrCode = new Html5Qrcode("reader");
-
             const config = { 
-                fps: 25, 
-                qrbox: (viewfinderWidth, viewfinderHeight) => {
-                    return { width: viewfinderWidth * 0.8, height: viewfinderHeight * 0.4 };
-                },
-                videoConstraints: {
-                    facingMode: "environment",
-                    // Используем стандартное разрешение, чтобы линза не перенапрягалась
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                    focusMode: "continuous"
-                }
+                fps: 20, 
+                qrbox: { width: 250, height: 150 },
+                aspectRatio: 1.0
             };
 
-            html5QrCode.start({ facingMode: "environment" }, config, (txt) => {
-                if(canScan) {
-                    canScan = false;
-                    db.ref('kiosks/' + id).update({ lastScan: txt });
-                    if(navigator.vibrate) navigator.vibrate(100);
-                    document.getElementById('status').innerHTML = `<span style="color:#22c55e">ОТПРАВЛЕНО: ${txt}</span>`;
+            html5QrCode.start(
+                { facingMode: "environment" }, 
+                config, 
+                (decodedText) => {
+                    const id = kioskInput.value;
+                    if(!id) {
+                        statusEl.innerText = "ВВЕДИТЕ ID!";
+                        statusEl.style.color = "red";
+                        return;
+                    }
+
+                    beep.play();
+                    // Отправка в Firebase
+                    db.ref('kiosks/' + id).update({
+                        lastScan: decodedText,
+                        timestamp: Date.now()
+                    });
+
+                    statusEl.innerText = "ОТПРАВЛЕНО: " + decodedText;
+                    statusEl.style.color = "#22c55e";
+
+                    // Пауза, чтобы не дублировать
+                    html5QrCode.pause();
                     setTimeout(() => {
-                        canScan = true;
-                        document.getElementById('status').innerText = "ГОТОВ";
-                    }, 2000); 
+                        html5QrCode.resume();
+                        statusEl.innerText = "ГОТОВ";
+                        statusEl.style.color = "white";
+                    }, 2000);
                 }
+            ).catch(err => {
+                statusEl.innerText = "ОШИБКА КАМЕРЫ";
+                console.error(err);
             });
+        }
+
+        // Если ID уже был, запускаем сразу
+        if(kioskInput.value.length >= 6) {
+            setTimeout(startCamera, 1000);
         }
     </script>
 </body>
