@@ -7,53 +7,66 @@
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; overflow: hidden; }
+        body { margin: 0; background: #1a1a1a; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; }
         
-        /* АНТИ-ПЕРЕСВЕТ: Убавляем яркость, оставляем четкость */
+        /* КОНТЕЙНЕР КАМЕРЫ: Не на весь экран! */
+        #reader-wrapper {
+            position: relative;
+            width: 90%;
+            max-width: 400px;
+            aspect-ratio: 1 / 1; /* Квадрат как у профи */
+            border-radius: 20px;
+            overflow: hidden;
+            border: 4px solid #333;
+            background: #000;
+        }
+
+        #reader { width: 100%; height: 100%; }
+
+        /* Настройки самого видео внутри блока */
         #reader video { 
-            filter: brightness(0.9) contrast(1.2) saturate(1.0) !important;
             object-fit: cover !important;
-            image-rendering: -webkit-optimize-contrast;
+            filter: contrast(1.1) brightness(1.0) !important;
         }
 
         .overlay { 
-            position: fixed; top: 50%; left: 50%; 
-            transform: translate(-50%, -50%); 
-            width: 320px; height: 180px; 
-            border: 3px solid #60a5fa; 
-            box-shadow: 0 0 0 5000px rgba(0,0,0,0.7); 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            border: 2px solid #22c55e; 
+            box-sizing: border-box;
             z-index: 10; pointer-events: none; 
-            border-radius: 15px;
         }
 
         .scan-line {
             position: absolute; width: 100%; height: 2px;
-            background: #60a5fa; top: 50%;
-            box-shadow: 0 0 15px #60a5fa;
-            animation: moveLine 1.8s ease-in-out infinite;
+            background: #22c55e; top: 50%;
+            box-shadow: 0 0 10px #22c55e;
+            animation: moveLine 2s linear infinite;
         }
 
-        @keyframes moveLine { 0%, 100% { top: 10%; } 50% { top: 90%; } }
+        @keyframes moveLine { 0% { top: 0%; } 100% { top: 100%; } }
 
-        #auth { padding-top: 50px; }
-        input { padding: 15px; font-size: 20px; width: 80%; border-radius: 12px; margin: 20px 0; border: none; }
-        button { padding: 20px; width: 80%; background: #2563eb; color: #fff; border: none; border-radius: 12px; font-weight: bold; }
-        #status { position: fixed; bottom: 30px; width: 100%; font-weight: bold; font-size: 18px; }
+        #auth { text-align: center; }
+        input { padding: 15px; font-size: 18px; width: 80%; border-radius: 10px; margin: 10px 0; border: none; }
+        button { padding: 18px; width: 85%; background: #22c55e; color: #fff; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        #status { margin-top: 20px; font-weight: bold; font-size: 18px; min-height: 1.2em; }
     </style>
 </head>
 <body>
 
     <div id="auth">
-        <h2>СИСТЕМА СКАНИРОВАНИЯ</h2>
-        <input type="number" id="kid" placeholder="ID 000000">
+        <h2 style="margin-bottom: 20px;">KIOSK SCANNER</h2>
+        <input type="number" id="kid" placeholder="ID КИОСКА (6 цифр)">
         <br>
-        <button onclick="start()">ЗАПУСТИТЬ HD</button>
+        <button onclick="start()">ВОЙТИ В СИСТЕМУ</button>
     </div>
 
-    <div id="reader" style="display:none; width: 100vw; height: 100vh;"></div>
-    <div id="ov" class="overlay" style="display:none;">
-        <div class="scan-line"></div>
+    <div id="reader-wrapper" style="display:none;">
+        <div id="reader"></div>
+        <div class="overlay">
+            <div class="scan-line"></div>
+        </div>
     </div>
+    
     <div id="status"></div>
 
     <script>
@@ -63,30 +76,26 @@
 
         let canScan = true;
 
-        async function start() {
+        function start() {
             const id = document.getElementById('kid').value;
             if(id.length !== 6) return;
             
             document.getElementById('auth').style.display = 'none';
-            document.getElementById('reader').style.display = 'block';
-            document.getElementById('ov').style.display = 'block';
+            document.getElementById('reader-wrapper').style.display = 'block';
 
             const html5QrCode = new Html5Qrcode("reader");
 
             const config = { 
-                fps: 30, 
-                qrbox: { width: 320, height: 180 },
+                fps: 25, 
+                qrbox: (viewfinderWidth, viewfinderHeight) => {
+                    return { width: viewfinderWidth * 0.8, height: viewfinderHeight * 0.4 };
+                },
                 videoConstraints: {
                     facingMode: "environment",
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 },
-                    // БОРЬБА С ПЕРЕСВЕТОМ
-                    advanced: [
-                        { exposureMode: "continuous" }, // Авто-подстройка света
-                        { exposureCompensation: -1.0 }, // Принудительно затемняем на 1 стоп
-                        { whiteBalanceMode: "continuous" },
-                        { focusMode: "continuous" }
-                    ]
+                    // Используем стандартное разрешение, чтобы линза не перенапрягалась
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    focusMode: "continuous"
                 }
             };
 
@@ -95,8 +104,11 @@
                     canScan = false;
                     db.ref('kiosks/' + id).update({ lastScan: txt });
                     if(navigator.vibrate) navigator.vibrate(100);
-                    document.getElementById('status').innerHTML = "ОТПРАВЛЕНО";
-                    setTimeout(() => { canScan = true; document.getElementById('status').innerText = ""; }, 2000); 
+                    document.getElementById('status').innerHTML = `<span style="color:#22c55e">ОТПРАВЛЕНО: ${txt}</span>`;
+                    setTimeout(() => {
+                        canScan = true;
+                        document.getElementById('status').innerText = "ГОТОВ";
+                    }, 2000); 
                 }
             });
         }
