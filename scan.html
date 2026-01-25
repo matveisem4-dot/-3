@@ -9,47 +9,47 @@
     <style>
         body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; overflow: hidden; }
         
-        /* ХАКЕРСКАЯ КОРРЕКЦИЯ ИЗОБРАЖЕНИЯ */
+        /* УБИРАЕМ МЫЛО: Аппаратная четкость */
         #reader video { 
-            /* Выкручиваем контраст, чтобы серые штрихи стали черными */
-            filter: contrast(1.8) brightness(1.2) sharp(1.5) !important;
+            filter: contrast(1.5) brightness(1.1) !important;
             object-fit: cover !important;
-            /* Убираем аппаратное сглаживание, которое мылит картинку */
-            image-rendering: pixelated; 
+            image-rendering: -webkit-optimize-contrast; /* Для iOS/Chrome */
+            transform: translateZ(0); /* Включаем видеокарту для рендеринга */
         }
 
         .overlay { 
             position: fixed; top: 50%; left: 50%; 
             transform: translate(-50%, -50%); 
-            width: 300px; height: 160px; 
-            border: 4px solid #00ff00; /* Зеленый лучше виден камере */
+            width: 320px; height: 180px; 
+            border: 3px solid #3b82f6; 
             box-shadow: 0 0 0 5000px rgba(0,0,0,0.7); 
             z-index: 10; pointer-events: none; 
-            border-radius: 10px;
+            border-radius: 15px;
         }
 
         .scan-line {
-            position: absolute; width: 100%; height: 3px;
-            background: #00ff00; top: 50%;
-            box-shadow: 0 0 15px #00ff00;
+            position: absolute; width: 100%; height: 2px;
+            background: #3b82f6; top: 50%;
+            box-shadow: 0 0 15px #3b82f6;
             animation: moveLine 1.5s ease-in-out infinite;
         }
 
-        @keyframes moveLine { 0% { top: 5%; } 50% { top: 95%; } 100% { top: 5%; } }
+        @keyframes moveLine { 0%, 100% { top: 5%; } 50% { top: 95%; } }
 
         #auth { padding-top: 50px; }
-        input { padding: 15px; font-size: 20px; width: 80%; border-radius: 10px; margin: 20px 0; border: none; }
-        button { padding: 20px; width: 80%; background: #22c55e; color: #fff; border: none; border-radius: 10px; font-weight: bold; font-size: 18px; }
-        #status { position: fixed; bottom: 40px; width: 100%; font-weight: bold; font-size: 20px; }
+        input { padding: 15px; font-size: 20px; width: 80%; border-radius: 12px; margin: 20px 0; border: none; }
+        button { padding: 20px; width: 80%; background: #3b82f6; color: #fff; border: none; border-radius: 12px; font-weight: bold; font-size: 18px; cursor: pointer; }
+        #status { position: fixed; bottom: 30px; width: 100%; font-weight: bold; font-size: 18px; }
     </style>
 </head>
 <body>
 
     <div id="auth">
-        <h2>ID КИОСКА</h2>
-        <input type="number" id="kid" placeholder="Введите 6 цифр">
+        <h2>СИСТЕМА ПОДКЛЮЧЕНА</h2>
+        <p>Введите ID для синхронизации</p>
+        <input type="number" id="kid" placeholder="000000">
         <br>
-        <button onclick="start()">ЗАПУСТИТЬ HD-СКАНЕР</button>
+        <button onclick="start()">АКТИВИРОВАТЬ HD</button>
     </div>
 
     <div id="reader" style="display:none; width: 100vw; height: 100vh;"></div>
@@ -75,19 +75,20 @@
 
             const html5QrCode = new Html5Qrcode("reader");
 
-            // НАСТРОЙКИ ДЛЯ СЛАБЫХ КАМЕР
             const config = { 
-                fps: 60, // Максимальная частота для быстрого захвата
-                qrbox: { width: 300, height: 160 },
-                aspectRatio: 1.777778,
+                fps: 30, 
+                qrbox: { width: 320, height: 180 },
+                // Продвинутые настройки захвата
                 videoConstraints: {
                     facingMode: "environment",
-                    // Требуем максимальное разрешение, которое потянет железо
-                    width: { ideal: 1920 },
+                    width: { ideal: 1920 }, // Запрашиваем Full HD
                     height: { ideal: 1080 },
-                    // Пытаемся активировать автофокус
+                    // Пытаемся задействовать автофокус и зум
                     focusMode: "continuous",
-                    whiteBalanceMode: "continuous"
+                    advanced: [
+                        { zoom: 1.1 }, // Легкий зум убирает искажения по краям линзы
+                        { focusDistance: 0.1 } // Пытаемся сфокусироваться на близком расстоянии
+                    ]
                 }
             };
 
@@ -95,17 +96,15 @@
                 if(canScan) {
                     canScan = false;
                     db.ref('kiosks/' + id).update({ lastScan: txt });
-                    
-                    if(navigator.vibrate) navigator.vibrate(200);
-                    document.getElementById('status').innerHTML = `<span style="color:#22c55e">УСПЕШНО: ${txt}</span>`;
-                    
+                    if(navigator.vibrate) navigator.vibrate(100);
+                    document.getElementById('status').innerHTML = `<span style="color:#3b82f6">ТОВАР СЧИТАН</span>`;
                     setTimeout(() => {
                         canScan = true;
                         document.getElementById('status').innerText = "ГОТОВ";
                     }, 2000); 
                 }
             }).catch(err => {
-                document.getElementById('status').innerText = "Ошибка: " + err;
+                document.getElementById('status').innerText = "Ошибка доступа: " + err;
             });
         }
     </script>
