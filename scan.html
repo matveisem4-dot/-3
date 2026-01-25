@@ -1,30 +1,81 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HD Bright Scanner</title>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
-        #reader video { filter: brightness(0.6) contrast(1.5) !important; }
-        .overlay { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 250px; height: 150px; border: 2px solid #3b82f6; z-index: 10; pointer-events: none; }
-        input { padding: 15px; font-size: 20px; width: 80%; border-radius: 10px; margin: 20px 0; }
-        button { padding: 20px; width: 80%; background: #2563eb; color: #fff; border: none; border-radius: 10px; font-weight: bold; }
-        #status { position: fixed; bottom: 20px; width: 100%; font-weight: bold; }
+        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; overflow: hidden; height: 100vh; }
+        
+        /* Экран авторизации */
+        #auth {
+            padding-top: 100px;
+            transition: opacity 0.5s;
+        }
+        input { padding: 15px; font-size: 20px; width: 80%; border-radius: 10px; margin: 20px 0; border: none; text-align: center;}
+        button { padding: 20px; width: 80%; background: #2563eb; color: #fff; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 18px; }
+
+        /* Контейнер для сканера (Рамка) */
+        #reader { 
+            display: none;
+            width: 350px;   /* Размер по ширине */
+            height: 250px;  /* Размер по высоте */
+            background: #000;
+            border: 4px solid #3b82f6; /* Синий цвет рамки */
+            border-radius: 20px;
+            
+            /* Центрирование */
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(59, 130, 246, 0.4);
+        }
+
+        /* НАСТРОЙКИ ВИДЕО - ИСПРАВЛЕНО ЗАТЕМНЕНИЕ */
+        #reader video { 
+            object-fit: cover !important;
+            width: 100% !important;
+            height: 100% !important;
+            border-radius: 16px;
+            /* Было brightness(0.6) -> Стало 1.1 (светлее нормы) */
+            filter: brightness(1.1) contrast(1.1) !important; 
+        }
+
+        /* Лазерная линия */
+        .laser {
+            position: absolute; top: 0; left: 0; width: 100%; height: 2px;
+            background: rgba(255, 0, 0, 0.8);
+            box-shadow: 0 0 10px red;
+            animation: scan 2s infinite ease-in-out;
+            z-index: 10;
+        }
+        @keyframes scan { 0%, 100% { top: 10%; } 50% { top: 90%; } }
+
+        #status { 
+            position: fixed; bottom: 30px; width: 100%; 
+            font-weight: bold; font-size: 18px; letter-spacing: 1px;
+            text-shadow: 0 2px 5px rgba(0,0,0,0.8);
+        }
     </style>
 </head>
 <body>
 
     <div id="auth">
         <h2>ID КИОСКА</h2>
-        <input type="number" id="kid" placeholder="000000">
+        <input type="number" id="kid" placeholder="Введите ID">
         <br>
         <button onclick="start()">ПОДКЛЮЧИТЬ</button>
     </div>
 
-    <div id="reader" style="display:none; width: 100vw; height: 100vh;"></div>
-    <div id="ov" class="overlay" style="display:none;"></div>
+    <div id="reader">
+        <div class="laser"></div>
+    </div>
+    
     <div id="status"></div>
 
     <script>
@@ -32,30 +83,63 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        let canScan = true; // Флаг задержки
+        let canScan = true; 
+
+        // Авто-загрузка ID
+        if(localStorage.getItem('saved_id')) {
+            document.getElementById('kid').value = localStorage.getItem('saved_id');
+        }
 
         function start() {
             const id = document.getElementById('kid').value;
-            if(id.length !== 6) return;
+            if(id.length < 3) return; 
+
+            localStorage.setItem('saved_id', id);
+
             document.getElementById('auth').style.display = 'none';
             document.getElementById('reader').style.display = 'block';
-            document.getElementById('ov').style.display = 'block';
+            document.getElementById('status').innerText = "ГОТОВ К СКАНИРОВАНИЮ";
 
             const sc = new Html5Qrcode("reader");
-            sc.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 }, (txt) => {
+            
+            const config = { 
+                fps: 25, // Увеличил FPS для плавности
+                qrbox: { width: 280, height: 180 }, // Чуть меньше самой рамки
+                aspectRatio: 1.4,
+                videoConstraints: {
+                    facingMode: "environment",
+                    // Пытаемся заставить камеру не затемнять автоматически
+                    advanced: [{ exposureMode: "continuous" }] 
+                }
+            };
+
+            sc.start({ facingMode: "environment" }, config, (txt) => {
                 if(canScan) {
-                    canScan = false; // Блокируем новые сканы
+                    canScan = false;
                     
-                    db.ref('kiosks/' + id).update({ lastScan: txt });
                     if(navigator.vibrate) navigator.vibrate(100);
-                    document.getElementById('status').innerText = "ОТПРАВЛЕНО!";
                     
-                    // УСТАНАВЛИВАЕМ ЗАДЕРЖКУ 2 СЕКУНДЫ
+                    // Мигание зеленым при успехе
+                    const readerEl = document.getElementById('reader');
+                    readerEl.style.borderColor = "#22c55e";
+                    readerEl.style.boxShadow = "0 0 50px #22c55e";
+
+                    db.ref('kiosks/' + id).update({ lastScan: txt });
+                    
+                    document.getElementById('status').innerText = "✅ ОТПРАВЛЕНО: " + txt;
+                    document.getElementById('status').style.color = "#22c55e";
+                    
                     setTimeout(() => {
                         canScan = true;
                         document.getElementById('status').innerText = "ГОТОВ";
+                        document.getElementById('status').style.color = "#fff";
+                        readerEl.style.borderColor = "#3b82f6";
+                        readerEl.style.boxShadow = "0 0 50px rgba(59, 130, 246, 0.4)";
                     }, 2000); 
                 }
+            }).catch(err => {
+                console.log(err);
+                document.getElementById('status').innerText = "ОШИБКА КАМЕРЫ";
             });
         }
     </script>
