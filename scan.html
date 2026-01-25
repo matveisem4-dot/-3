@@ -1,59 +1,30 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
-        
-        /* МЕГАНАСТРОЙКА ВИДЕО: Подкручиваем яркость и резкость для плохого сенсора */
-        #reader video { 
-            filter: brightness(1.1) contrast(1.3) saturate(1.1) !important;
-            object-fit: cover !important;
-            image-rendering: optimizeSpeed; /* Убирает лишнее сглаживание */
-        }
-
-        .overlay { 
-            position: fixed; top: 50%; left: 50%; 
-            transform: translate(-50%, -50%); 
-            width: 280px; height: 180px; 
-            border: 3px solid #3b82f6; 
-            box-shadow: 0 0 0 5000px rgba(0,0,0,0.5); /* Затемнение вокруг зоны скана */
-            z-index: 10; pointer-events: none; 
-            border-radius: 15px;
-        }
-
-        .scan-line {
-            position: absolute; width: 100%; height: 2px;
-            background: #ff0000; top: 50%;
-            box-shadow: 0 0 10px #ff0000;
-            animation: moveLine 2s linear infinite;
-        }
-
-        @keyframes moveLine { 0% { top: 0%; } 100% { top: 100%; } }
-
-        input { padding: 15px; font-size: 20px; width: 80%; border-radius: 10px; margin: 20px 0; border: none; }
-        button { padding: 20px; width: 80%; background: #2563eb; color: #fff; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
-        #status { position: fixed; bottom: 30px; width: 100%; font-weight: bold; font-size: 18px; text-shadow: 1px 1px 5px #000; }
+        #reader video { filter: brightness(0.6) contrast(1.5) !important; }
+        .overlay { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 250px; height: 150px; border: 2px solid #3b82f6; z-index: 10; pointer-events: none; }
+        input { padding: 15px; font-size: 20px; width: 80%; border-radius: 10px; margin: 20px 0; }
+        button { padding: 20px; width: 80%; background: #2563eb; color: #fff; border: none; border-radius: 10px; font-weight: bold; }
+        #status { position: fixed; bottom: 20px; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <div id="auth">
-        <h2 style="margin-top: 50px;">SMART SCANNER PRO</h2>
-        <p>Введите ID вашего киоска</p>
+        <h2>ID КИОСКА</h2>
         <input type="number" id="kid" placeholder="000000">
         <br>
-        <button onclick="start()">ПОДКЛЮЧИТЬ КАМЕРУ</button>
+        <button onclick="start()">ПОДКЛЮЧИТЬ</button>
     </div>
 
     <div id="reader" style="display:none; width: 100vw; height: 100vh;"></div>
-    <div id="ov" class="overlay" style="display:none;">
-        <div class="scan-line"></div>
-    </div>
+    <div id="ov" class="overlay" style="display:none;"></div>
     <div id="status"></div>
 
     <script>
@@ -61,51 +32,30 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        let canScan = true;
+        let canScan = true; // Флаг задержки
 
         function start() {
             const id = document.getElementById('kid').value;
-            if(id.length !== 6) { alert("ID должен быть 6 знаков!"); return; }
-            
+            if(id.length !== 6) return;
             document.getElementById('auth').style.display = 'none';
             document.getElementById('reader').style.display = 'block';
             document.getElementById('ov').style.display = 'block';
 
-            const html5QrCode = new Html5Qrcode("reader");
-
-            // КОНФИГУРАЦИЯ КАМЕРЫ (МЕГАНАСТРОЙКИ)
-            const config = { 
-                fps: 30, // Увеличиваем кадры для плавности
-                qrbox: { width: 280, height: 180 },
-                videoConstraints: {
-                    facingMode: "environment",
-                    width: { min: 640, ideal: 1280, max: 1920 }, // Требуем HD
-                    height: { min: 480, ideal: 720, max: 1080 },
-                    aspectRatio: 1.777777778, // Формат 16:9
-                    frameRate: { ideal: 30 },
-                    // Пытаемся заставить камеру фокусироваться
-                    focusMode: "continuous"
-                }
-            };
-
-            html5QrCode.start({ facingMode: "environment" }, config, (txt) => {
+            const sc = new Html5Qrcode("reader");
+            sc.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 }, (txt) => {
                 if(canScan) {
-                    canScan = false;
+                    canScan = false; // Блокируем новые сканы
                     
                     db.ref('kiosks/' + id).update({ lastScan: txt });
+                    if(navigator.vibrate) navigator.vibrate(100);
+                    document.getElementById('status').innerText = "ОТПРАВЛЕНО!";
                     
-                    if(navigator.vibrate) navigator.vibrate([100, 50, 100]); // Двойная вибрация
-                    
-                    document.getElementById('status').innerHTML = `<span style="color:#22c55e">ОТПРАВЛЕНО: ${txt}</span>`;
-                    
+                    // УСТАНАВЛИВАЕМ ЗАДЕРЖКУ 2 СЕКУНДЫ
                     setTimeout(() => {
                         canScan = true;
-                        document.getElementById('status').innerHTML = "ГОТОВ К СЛЕДУЮЩЕМУ ТОВАРУ";
+                        document.getElementById('status').innerText = "ГОТОВ";
                     }, 2000); 
                 }
-            }).catch(err => {
-                console.error("Ошибка камеры:", err);
-                document.getElementById('status').innerText = "ОШИБКА КАМЕРЫ: " + err;
             });
         }
     </script>
