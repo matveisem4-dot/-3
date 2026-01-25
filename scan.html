@@ -7,46 +7,47 @@
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
+        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; overflow: hidden; }
         
-        /* КОРРЕКЦИЯ ВИДЕО: Убираем "мыло", добавляем резкость */
+        /* АНТИ-ПЕРЕСВЕТ: Убавляем яркость, оставляем четкость */
         #reader video { 
-            filter: contrast(1.5) brightness(1.1) sharp(1.2) !important;
+            filter: brightness(0.9) contrast(1.2) saturate(1.0) !important;
             object-fit: cover !important;
-            image-rendering: -webkit-optimize-contrast; /* Улучшает четкость на мобильных */
+            image-rendering: -webkit-optimize-contrast;
         }
 
         .overlay { 
             position: fixed; top: 50%; left: 50%; 
             transform: translate(-50%, -50%); 
             width: 320px; height: 180px; 
-            border: 4px solid #4ade80; 
-            box-shadow: 0 0 0 5000px rgba(0,0,0,0.6); 
+            border: 3px solid #60a5fa; 
+            box-shadow: 0 0 0 5000px rgba(0,0,0,0.7); 
             z-index: 10; pointer-events: none; 
-            border-radius: 12px;
+            border-radius: 15px;
         }
 
         .scan-line {
-            position: absolute; width: 100%; height: 3px;
-            background: #4ade80; top: 50%;
-            box-shadow: 0 0 20px #4ade80;
-            animation: moveLine 1.5s ease-in-out infinite;
+            position: absolute; width: 100%; height: 2px;
+            background: #60a5fa; top: 50%;
+            box-shadow: 0 0 15px #60a5fa;
+            animation: moveLine 1.8s ease-in-out infinite;
         }
 
         @keyframes moveLine { 0%, 100% { top: 10%; } 50% { top: 90%; } }
 
+        #auth { padding-top: 50px; }
         input { padding: 15px; font-size: 20px; width: 80%; border-radius: 12px; margin: 20px 0; border: none; }
-        button { padding: 20px; width: 80%; background: #16a34a; color: #fff; border: none; border-radius: 12px; font-weight: bold; font-size: 18px; }
-        #status { position: fixed; bottom: 40px; width: 100%; font-weight: bold; font-size: 20px; }
+        button { padding: 20px; width: 80%; background: #2563eb; color: #fff; border: none; border-radius: 12px; font-weight: bold; }
+        #status { position: fixed; bottom: 30px; width: 100%; font-weight: bold; font-size: 18px; }
     </style>
 </head>
 <body>
 
     <div id="auth">
-        <h2 style="margin-top: 50px;">HD SCANNER MODE</h2>
-        <input type="number" id="kid" placeholder="Введите ID">
+        <h2>СИСТЕМА СКАНИРОВАНИЯ</h2>
+        <input type="number" id="kid" placeholder="ID 000000">
         <br>
-        <button onclick="start()">ЗАПУСТИТЬ</button>
+        <button onclick="start()">ЗАПУСТИТЬ HD</button>
     </div>
 
     <div id="reader" style="display:none; width: 100vw; height: 100vh;"></div>
@@ -77,14 +78,14 @@
                 qrbox: { width: 320, height: 180 },
                 videoConstraints: {
                     facingMode: "environment",
-                    // Требуем HD как у профи
-                    width: { ideal: 1920 }, 
+                    width: { ideal: 1920 },
                     height: { ideal: 1080 },
-                    // Пытаемся включить непрерывный автофокус
-                    focusMode: "continuous",
+                    // БОРЬБА С ПЕРЕСВЕТОМ
                     advanced: [
-                        { zoom: 1.1 }, // Легкий зум помогает сфокусироваться на штрих-коде
-                        { sharpness: 100 } // Если железо поддерживает
+                        { exposureMode: "continuous" }, // Авто-подстройка света
+                        { exposureCompensation: -1.0 }, // Принудительно затемняем на 1 стоп
+                        { whiteBalanceMode: "continuous" },
+                        { focusMode: "continuous" }
                     ]
                 }
             };
@@ -93,12 +94,9 @@
                 if(canScan) {
                     canScan = false;
                     db.ref('kiosks/' + id).update({ lastScan: txt });
-                    if(navigator.vibrate) navigator.vibrate(150);
-                    document.getElementById('status').innerHTML = `<span style="color:#4ade80">СЧИТАНО: ${txt}</span>`;
-                    setTimeout(() => { 
-                        canScan = true; 
-                        document.getElementById('status').innerText = "ГОТОВ"; 
-                    }, 2500); 
+                    if(navigator.vibrate) navigator.vibrate(100);
+                    document.getElementById('status').innerHTML = "ОТПРАВЛЕНО";
+                    setTimeout(() => { canScan = true; document.getElementById('status').innerText = ""; }, 2000); 
                 }
             });
         }
