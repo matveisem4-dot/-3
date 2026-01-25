@@ -7,47 +7,49 @@
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
+        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; overflow: hidden; }
         
-        /* МЕГАНАСТРОЙКА ВИДЕО: Подкручиваем яркость и резкость для плохого сенсора */
+        /* ХАКЕРСКАЯ КОРРЕКЦИЯ ИЗОБРАЖЕНИЯ */
         #reader video { 
-            filter: brightness(1.1) contrast(1.3) saturate(1.1) !important;
+            /* Выкручиваем контраст, чтобы серые штрихи стали черными */
+            filter: contrast(1.8) brightness(1.2) sharp(1.5) !important;
             object-fit: cover !important;
-            image-rendering: optimizeSpeed; /* Убирает лишнее сглаживание */
+            /* Убираем аппаратное сглаживание, которое мылит картинку */
+            image-rendering: pixelated; 
         }
 
         .overlay { 
             position: fixed; top: 50%; left: 50%; 
             transform: translate(-50%, -50%); 
-            width: 280px; height: 180px; 
-            border: 3px solid #3b82f6; 
-            box-shadow: 0 0 0 5000px rgba(0,0,0,0.5); /* Затемнение вокруг зоны скана */
+            width: 300px; height: 160px; 
+            border: 4px solid #00ff00; /* Зеленый лучше виден камере */
+            box-shadow: 0 0 0 5000px rgba(0,0,0,0.7); 
             z-index: 10; pointer-events: none; 
-            border-radius: 15px;
+            border-radius: 10px;
         }
 
         .scan-line {
-            position: absolute; width: 100%; height: 2px;
-            background: #ff0000; top: 50%;
-            box-shadow: 0 0 10px #ff0000;
-            animation: moveLine 2s linear infinite;
+            position: absolute; width: 100%; height: 3px;
+            background: #00ff00; top: 50%;
+            box-shadow: 0 0 15px #00ff00;
+            animation: moveLine 1.5s ease-in-out infinite;
         }
 
-        @keyframes moveLine { 0% { top: 0%; } 100% { top: 100%; } }
+        @keyframes moveLine { 0% { top: 5%; } 50% { top: 95%; } 100% { top: 5%; } }
 
+        #auth { padding-top: 50px; }
         input { padding: 15px; font-size: 20px; width: 80%; border-radius: 10px; margin: 20px 0; border: none; }
-        button { padding: 20px; width: 80%; background: #2563eb; color: #fff; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
-        #status { position: fixed; bottom: 30px; width: 100%; font-weight: bold; font-size: 18px; text-shadow: 1px 1px 5px #000; }
+        button { padding: 20px; width: 80%; background: #22c55e; color: #fff; border: none; border-radius: 10px; font-weight: bold; font-size: 18px; }
+        #status { position: fixed; bottom: 40px; width: 100%; font-weight: bold; font-size: 20px; }
     </style>
 </head>
 <body>
 
     <div id="auth">
-        <h2 style="margin-top: 50px;">SMART SCANNER PRO</h2>
-        <p>Введите ID вашего киоска</p>
-        <input type="number" id="kid" placeholder="000000">
+        <h2>ID КИОСКА</h2>
+        <input type="number" id="kid" placeholder="Введите 6 цифр">
         <br>
-        <button onclick="start()">ПОДКЛЮЧИТЬ КАМЕРУ</button>
+        <button onclick="start()">ЗАПУСТИТЬ HD-СКАНЕР</button>
     </div>
 
     <div id="reader" style="display:none; width: 100vw; height: 100vh;"></div>
@@ -63,9 +65,9 @@
 
         let canScan = true;
 
-        function start() {
+        async function start() {
             const id = document.getElementById('kid').value;
-            if(id.length !== 6) { alert("ID должен быть 6 знаков!"); return; }
+            if(id.length !== 6) return;
             
             document.getElementById('auth').style.display = 'none';
             document.getElementById('reader').style.display = 'block';
@@ -73,39 +75,37 @@
 
             const html5QrCode = new Html5Qrcode("reader");
 
-            // КОНФИГУРАЦИЯ КАМЕРЫ (МЕГАНАСТРОЙКИ)
+            // НАСТРОЙКИ ДЛЯ СЛАБЫХ КАМЕР
             const config = { 
-                fps: 30, // Увеличиваем кадры для плавности
-                qrbox: { width: 280, height: 180 },
+                fps: 60, // Максимальная частота для быстрого захвата
+                qrbox: { width: 300, height: 160 },
+                aspectRatio: 1.777778,
                 videoConstraints: {
                     facingMode: "environment",
-                    width: { min: 640, ideal: 1280, max: 1920 }, // Требуем HD
-                    height: { min: 480, ideal: 720, max: 1080 },
-                    aspectRatio: 1.777777778, // Формат 16:9
-                    frameRate: { ideal: 30 },
-                    // Пытаемся заставить камеру фокусироваться
-                    focusMode: "continuous"
+                    // Требуем максимальное разрешение, которое потянет железо
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                    // Пытаемся активировать автофокус
+                    focusMode: "continuous",
+                    whiteBalanceMode: "continuous"
                 }
             };
 
             html5QrCode.start({ facingMode: "environment" }, config, (txt) => {
                 if(canScan) {
                     canScan = false;
-                    
                     db.ref('kiosks/' + id).update({ lastScan: txt });
                     
-                    if(navigator.vibrate) navigator.vibrate([100, 50, 100]); // Двойная вибрация
-                    
-                    document.getElementById('status').innerHTML = `<span style="color:#22c55e">ОТПРАВЛЕНО: ${txt}</span>`;
+                    if(navigator.vibrate) navigator.vibrate(200);
+                    document.getElementById('status').innerHTML = `<span style="color:#22c55e">УСПЕШНО: ${txt}</span>`;
                     
                     setTimeout(() => {
                         canScan = true;
-                        document.getElementById('status').innerHTML = "ГОТОВ К СЛЕДУЮЩЕМУ ТОВАРУ";
+                        document.getElementById('status').innerText = "ГОТОВ";
                     }, 2000); 
                 }
             }).catch(err => {
-                console.error("Ошибка камеры:", err);
-                document.getElementById('status').innerText = "ОШИБКА КАМЕРЫ: " + err;
+                document.getElementById('status').innerText = "Ошибка: " + err;
             });
         }
     </script>
