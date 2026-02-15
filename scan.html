@@ -3,135 +3,110 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Scanner Pro Ultra + NFC</title>
+    <title>Scanner Ultra Fix</title>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        body { margin: 0; background: #000; color: #fff; font-family: 'Segoe UI', sans-serif; text-align: center; overflow: hidden; height: 100vh; }
+        body { margin: 0; background: #000; color: #fff; font-family: 'Segoe UI', sans-serif; text-align: center; height: 100vh; display: flex; flex-direction: column; }
+        #auth { padding: 40px 20px; }
+        input { padding: 15px; font-size: 22px; width: 80%; max-width: 250px; border-radius: 12px; border: 2px solid #3b82f6; background: #111; color: white; text-align: center; margin-bottom: 20px; }
+        button { padding: 15px 40px; background: #2563eb; color: #fff; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; }
         
-        /* Экран входа */
-        #auth { padding-top: 80px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
-        input { padding: 18px; font-size: 24px; width: 250px; border-radius: 15px; border: 2px solid #3b82f6; background: #111; color: white; text-align: center; outline: none; }
-        button { padding: 18px 40px; width: 250px; background: #2563eb; color: #fff; border: none; border-radius: 15px; font-weight: bold; cursor: pointer; font-size: 18px; }
-
-        /* Окно сканера */
-        #reader { display: none; width: 350px; height: 250px; background: #000; border: 4px solid #3b82f6; border-radius: 25px; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); overflow: hidden; box-shadow: 0 0 40px rgba(59, 130, 246, 0.3); }
-        #reader video { object-fit: cover !important; width: 100% !important; height: 100% !important; filter: brightness(1.1) contrast(1.2); }
-
-        /* Визуальные эффекты */
-        .laser { position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: #ff0000; box-shadow: 0 0 15px #ff0000; animation: scanLine 2s infinite ease-in-out; z-index: 10; }
-        @keyframes scanLine { 0% { top: 15%; opacity: 0.2; } 50% { top: 85%; opacity: 1; } 100% { top: 15%; opacity: 0.2; } }
+        #reader-container { display: none; position: relative; width: 100%; flex-grow: 1; background: #000; }
+        #reader { width: 100%; height: 100%; }
         
-        .corner { position: absolute; width: 30px; height: 30px; border: 4px solid white; z-index: 11; opacity: 0.7; }
-        .top-left { top: 15px; left: 15px; border-right: 0; border-bottom: 0; border-top-left-radius: 10px; }
-        .top-right { top: 15px; right: 15px; border-left: 0; border-bottom: 0; border-top-right-radius: 10px; }
-        .bottom-left { bottom: 15px; left: 15px; border-right: 0; border-top: 0; border-bottom-left-radius: 10px; }
-        .bottom-right { bottom: 15px; right: 15px; border-left: 0; border-top: 0; border-bottom-right-radius: 10px; }
+        /* Стилизация рамки сканера */
+        .scan-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 260px; height: 180px; border: 3px solid #3b82f6; border-radius: 20px; z-index: 10; pointer-events: none; box-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }
+        .laser { position: absolute; top: 10%; left: 5%; width: 90%; height: 2px; background: #ff0000; box-shadow: 0 0 10px #ff0000; animation: move 2s infinite ease-in-out; }
+        @keyframes move { 0%, 100% { top: 10%; } 50% { top: 90%; } }
 
-        #status { position: fixed; bottom: 40px; width: 100%; font-weight: bold; font-size: 20px; transition: 0.3s; }
-        .nfc-badge { background: #3b82f6; color: white; padding: 5px 15px; border-radius: 20px; font-size: 12px; margin-top: 10px; display: inline-block; }
+        #status { padding: 20px; font-size: 18px; font-weight: bold; background: #111; border-top: 1px solid #333; }
     </style>
 </head>
 <body>
 
     <div id="auth">
         <h2>CONNECT TO KIOSK</h2>
-        <input type="number" id="kid" placeholder="ID: 000000">
-        <button onclick="startSystem()">START SYSTEM</button>
+        <input type="number" id="kid" placeholder="Введите ID кассы">
+        <br>
+        <button onclick="initSystem()">START SCANNER</button>
     </div>
 
-    <div id="reader">
-        <div class="laser"></div>
-        <div class="corner top-left"></div>
-        <div class="corner top-right"></div>
-        <div class="corner bottom-left"></div>
-        <div class="corner bottom-right"></div>
+    <div id="reader-container">
+        <div id="reader"></div>
+        <div class="scan-overlay">
+            <div class="laser"></div>
+        </div>
     </div>
     
-    <div id="status">
-        WAITING...
-        <br><span id="nfc-status" class="nfc-badge">NFC: DISABLED</span>
-    </div>
+    <div id="status" style="display:none">READY</div>
 
     <script>
+        // Конфигурация Firebase (та же, что в кассе)
         const firebaseConfig = { databaseURL: "https://cassa-simulator-4-default-rtdb.firebaseio.com/" };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        let canScan = true;
         let kioskId = "";
+        let canScan = true;
 
-        // 1. ЗАПУСК СИСТЕМЫ (КАМЕРА + NFC)
-        async function startSystem() {
+        async function initSystem() {
             kioskId = document.getElementById('kid').value;
-            if(kioskId.length < 3) { alert("Invalid ID"); return; }
+            if (kioskId.length < 3) { alert("Введите корректный ID!"); return; }
 
             document.getElementById('auth').style.display = 'none';
-            document.getElementById('reader').style.display = 'block';
-            
+            document.getElementById('reader-container').style.display = 'block';
+            document.getElementById('status').style.display = 'block';
+
             startCamera();
-            startNFC(); // Включаем "ухо" для NFC
+            startNFC();
         }
 
-        // 2. РАБОТА С КАМЕРОЙ
         function startCamera() {
-            const scanner = new Html5Qrcode("reader");
-            const config = { fps: 25, qrbox: { width: 300, height: 200 } };
+            const html5QrCode = new Html5Qrcode("reader");
+            const config = { fps: 20, qrbox: { width: 250, height: 150 } };
 
-            scanner.start({ facingMode: "environment" }, config, (decodedText) => {
-                if(canScan) {
-                    sendToFirebase(decodedText, "BARCODE");
+            html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
+                if (canScan) {
+                    sendData(decodedText, "ITEM");
                 }
             });
         }
 
-        // 3. РАБОТА С NFC (Тот самый "жесткий" сигнал)
         async function startNFC() {
-            const nfcLabel = document.getElementById('nfc-status');
             if ('NDEFReader' in window) {
                 try {
                     const ndef = new NDEFReader();
                     await ndef.scan();
-                    nfcLabel.innerText = "NFC: ACTIVE";
-                    nfcLabel.style.background = "#22c55e";
-
-                    ndef.onreading = event => {
-                        // Если приложили телефон/карту - отправляем секретный код оплаты
-                        sendToFirebase("PAY_CONFIRM_777", "NFC");
-                        if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                    ndef.onreading = () => {
+                        // Посылаем сигнал, который касса воспримет как оплату
+                        sendData("PAY_CONFIRM_777", "NFC");
                     };
-                } catch (error) {
-                    nfcLabel.innerText = "NFC: PERMISSION DENIED";
-                }
-            } else {
-                nfcLabel.innerText = "NFC: NOT SUPPORTED";
+                } catch (e) { console.log("NFC support error"); }
             }
         }
 
-        // 4. ОТПРАВКА В БАЗУ
-        function sendToFirebase(code, type) {
+        function sendData(code, type) {
             canScan = false;
-            const readerEl = document.getElementById('reader');
             const statusEl = document.getElementById('status');
+            
+            if (navigator.vibrate) navigator.vibrate(100);
 
-            // Визуал успеха
-            readerEl.style.borderColor = (type === "NFC" ? "#facc15" : "#22c55e");
-            statusEl.innerText = (type === "NFC" ? "💳 NFC PAYMENT SENT" : "📦 ITEM SENT: " + code);
-            statusEl.style.color = (type === "NFC" ? "#facc15" : "#22c55e");
-
-            // Запись в Firebase
-            db.ref('kiosks/' + kioskId).update({ 
-                lastScan: code,
-                t: Date.now() 
+            // ВНИМАНИЕ: Путь записи именно такой, какой слушает твоя касса!
+            // Мы пишем напрямую в kiosks/ID/lastScan
+            db.ref('kiosks/' + kioskId).update({
+                lastScan: code.toString()
+            }).then(() => {
+                statusEl.innerText = (type === "NFC" ? "💳 PAYMENT SENT" : "📦 SENT: " + code);
+                statusEl.style.color = "#22c55e";
+                
+                setTimeout(() => {
+                    canScan = true;
+                    statusEl.innerText = "READY";
+                    statusEl.style.color = "#fff";
+                }, 1500);
             });
-
-            setTimeout(() => {
-                canScan = true;
-                readerEl.style.borderColor = "#3b82f6";
-                statusEl.innerText = "READY TO SCAN";
-                statusEl.style.color = "#fff";
-            }, 2000);
         }
     </script>
 </body>
